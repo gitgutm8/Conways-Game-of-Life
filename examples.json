@@ -1,0 +1,91 @@
+{
+  "blinker": {
+    "row_offset": 1,
+    "col_offset": 1,
+    "template": [
+      "###"
+    ]
+  },
+
+  "toad": {
+    "row_offset": 2,
+    "col_offset": 2,
+    "template": [
+      " ###",
+      "### "
+    ]
+  },
+
+  "beacon": {
+    "row_offset": 2,
+    "col_offset": 2,
+    "template": [
+      "##  ",
+      "#   ",
+      "   #",
+      "  ##"
+    ]
+  },
+
+  "pulsar": {
+    "row_offset": 1,
+    "col_offset": 2,
+    "template": [
+      "  ###   ###  ",
+      "             ",
+      "#    # #    #",
+      "#    # #    #",
+      "#    # #    #",
+      "  ###   ###  ",
+      "             ",
+      "  ###   ###  ",
+      "#    # #    #",
+      "#    # #    #",
+      "#    # #    #",
+      "             ",
+      "  ###   ###  "
+    ]
+  },
+
+  "period15": {
+    "row_offset": 4,
+    "col_offset": 4,
+    "template": [
+      "  #    #  ",
+      "## #### ##",
+      "  #    #  "
+    ]
+  },
+
+  "glider": {
+    "template": [
+      " # ",
+      "  #",
+      "###"
+    ]
+  },
+
+  "acorn": {
+    "row_offset": 5,
+    "col_offset": 5,
+    "template": [
+      " #     ",
+      "   #   ",
+      "##  ###"
+    ]
+  },
+
+  "54turns": {
+    "row_offset": 6,
+    "col_offset": 8,
+    "template": [
+      "###",
+      "# #",
+      "# #",
+      "   ",
+      "# #",
+      "# #",
+      "###"
+    ]
+  }
+}
