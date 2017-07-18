@@ -12,11 +12,13 @@ from vectors import Vector
 FPS = 30
 TIMER_INIT = 200  # Zeit zum nächsten Update der Zellen in ms
 TIMER_CHANGE = 10
-TIMER_MIN, TIMER_MAX = 100, 300
+TIMER_MIN, TIMER_MAX = 20, 300
 
 _MAGIC_FACTOR = 4
 LINES, COLS = 30 * _MAGIC_FACTOR, 50 * _MAGIC_FACTOR
 BLOCK_SIZE = 20 // _MAGIC_FACTOR
+
+_LEFT_MOUSE, _MIDDLE_MOUSE, _RIGHT_MOUSE = range(1, 4)
 
 # Es gibt sonst Probleme aufgrund anderer Tastaturstandards
 _PLUS = 93
@@ -66,7 +68,7 @@ class PgGol:
     @classmethod
     def from_file(cls, file, config_name, lines, cols, middle=False):
         obj = cls(lines, cols)
-        obj.cells = gol.from_file(file, config_name, middle, lines, cols)
+        obj.cells = gol.from_file(file, config_name, lines, cols, middle)
         return obj
 
     @require_state('playing', False)
@@ -74,7 +76,7 @@ class PgGol:
         """
         Setzt ein vorübergegangenes Spiel auf den Ursprungszustand zurück.
 
-        :return: None
+        :return: {None}
         """
         self.cells = set()
         self.texts = []
@@ -89,10 +91,8 @@ class PgGol:
         """
         Wie `self.reset`, benutzt aber vorherige Startkonfiguration als Ausgangspunkt.
 
-        :return: None
+        :return: {None}
         """
-        if self.playing:
-            return
         self.reset()
         self.cells = self.old_config
 
@@ -101,7 +101,7 @@ class PgGol:
         """
         Beginnt Simulation und speichert Startkonfiguration.
 
-        :return: None
+        :return: {None}
         """
         self.initialising = False
         self.old_config = self.cells.copy()
@@ -110,18 +110,20 @@ class PgGol:
         """
         Die Game-Loop
 
-        :return: None
+        :return: {None}
         """
+        callbacks = {
+            pg.MOUSEBUTTONDOWN: self.handle_mouse_input,
+            pg.KEYDOWN: self.handle_key_input,
+            pg.QUIT: sys.exit
+        }
         while True:
             # Wir wollen Millisekunden
             dt = self.clock.tick(FPS)
             for e in pg.event.get():
-                if e.type == pg.MOUSEBUTTONDOWN:
-                    self.handle_mouse_input()
-                elif e.type == pg.KEYDOWN:
-                    self.handle_key_input(e.key)
-                elif e.type == pg.QUIT:
-                    sys.exit()
+                # Schneller als dict.get
+                if e.type in callbacks:
+                    callbacks[e.type](e)
             self.update(dt)
             self.draw()
 
@@ -131,7 +133,7 @@ class PgGol:
         Kümmert sich um Zellen und aktuellen Status.
 
         :param dt: {int} Millisekunden seit letztem Tick
-        :return: None
+        :return: {None}
         """
         if self.in_help:
             self.alert_help()
@@ -159,7 +161,7 @@ class PgGol:
         """
         Zeichnet je nach Spielstatus verschiedene Sachen.
 
-        :return: None
+        :return: {None}
         """
         if not self.playing:
             # Leere übrige Texte, die sich eventuell angesammelt haben
@@ -186,20 +188,21 @@ class PgGol:
         """
         Schreibe Text an beliebiger Position im Fenster.
 
-        :return: None
+        :return: {None}
         """
         self.screen.blit(self.font.render(text, 1, color), pos)
 
     @require_state('initialising')
-    def handle_mouse_input(self):
+    def handle_mouse_input(self, event):
         """
         In der Initialisierungssphase werden bei einem Linksklick
         Zellen hinzugefügt/entfernt.
 
-        :return: None
+        :param: {pygame.Event} Das Klickevent
+        :return: {None}
         """
-        pos = pg.mouse.get_pos()
-        lclick = pg.mouse.get_pressed()[0]
+        pos = event.pos
+        lclick = event.button == _LEFT_MOUSE
         if lclick:
             scaled_pos = Vector(pos) // self.block_size
             try:
@@ -207,12 +210,12 @@ class PgGol:
             except KeyError:
                 self.cells.add(scaled_pos)
 
-    def handle_key_input(self, key):
+    def handle_key_input(self, event):
         """
         Macht je nach gedrückter Taste etwas anderes.
 
-        :param key: {int} Gedrückte Taste
-        :return: None
+        :param event: {pygame.Event} Das Drückevent
+        :return: {None}
         """
         key_to_action = {
             pg.K_p: self.start_game,
@@ -225,6 +228,7 @@ class PgGol:
             _MINUS: partial(self.change_timer, oper.lt, TIMER_MAX, oper.add),
             _PLUS: partial(self.change_timer, oper.gt, TIMER_MIN, oper.sub)
         }
+        key = event.key
         action = key_to_action.get(key, lambda: 0)
         action()
 
@@ -235,7 +239,7 @@ class PgGol:
         :param cmp: {function} Vergleichsfunktion
         :param cmp_with: {int} Damit wird verglichen
         :param op: {function} Veränderung von `self.timer`
-        :return: None
+        :return: {None}
         """
         if cmp(self.timer, cmp_with):
             self.timer = op(self.timer, TIMER_CHANGE)
@@ -244,7 +248,7 @@ class PgGol:
         """
         De-/Aktiviert die Hilfe-Einblendungen.
 
-        :return: None
+        :return: {None}
         """
         self.in_help = not self.in_help
 
@@ -252,12 +256,18 @@ class PgGol:
         """
         Un-/Pausiert die Simulation.
 
-        :return: None
+        :return: {None}
         """
         self.paused = not self.paused
 
     @require_state('playing', False)
     def save_to_file(self, file='your_templates.json'):
+        """
+        Speichert aktuelle Startkonfiguration in eine .json Datei.
+        
+        :param file: {str} Dateiname/-pfad 
+        :return: {None}
+        """
         template = self.create_template()
 
         with open(file, 'rt') as f:
@@ -293,7 +303,7 @@ class PgGol:
         Fügt die Texte hinzu, die während dem pausierten Zustand
         angezeigt werden sollen.
 
-        :return: None
+        :return: {None}
         """
         self.texts.append(('Pausiert', (20, 5)))
         self.texts.append((f'Derzeitige ms pro Zyklus: {self.timer}', (20, 30)))
@@ -302,7 +312,7 @@ class PgGol:
         """
         Fügt die Hilfe-Einblendungen gegebenenfalls hinzu.
 
-        :return: None
+        :return: {None}
         """
         self.texts.append(('+: Beschleunige Zyklen', (20, 80)))
         self.texts.append(('-: Verlangsame Zyklen', (20, 110)))
@@ -311,13 +321,16 @@ class PgGol:
         self.texts.append(('q: Spiel beenden', (20, 200)))
 
     def alert_save_success(self):
+        # TODO: Show a message upon saving
+
+        # this doesn't work
         self.texts.append(('Speichern erfolgreich', (20, 130)))
 
     def draw_game_over(self):
         """
         Zeichnet, was nach beenden der Simulation zu sehen ist.
 
-        :return: None
+        :return: {None}
         """
         self.screen.fill(GAME_OVER_COLOR)
         self.texts.append(('Das Spiel ist vorbei!', (20, 10)))
@@ -330,4 +343,4 @@ class PgGol:
 if __name__ == '__main__':
     pg.init()
     #PgGol(LINES, COLS).run()
-    PgGol.from_file('examples.json', 'acorn', LINES, COLS, middle=True).run()
+    PgGol.from_file('examples.json', 'glidergun', LINES, COLS).run()
