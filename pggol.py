@@ -1,5 +1,7 @@
 import sys
-import operator
+import json
+import operator as oper
+from functools import partial, wraps
 
 import pygame as pg
 
@@ -12,8 +14,9 @@ TIMER_INIT = 200  # Zeit zum nächsten Update der Zellen in ms
 TIMER_CHANGE = 10
 TIMER_MIN, TIMER_MAX = 100, 300
 
-LINES, COLS = 30, 50
-BLOCK_SIZE = 20
+_MAGIC_FACTOR = 4
+LINES, COLS = 30 * _MAGIC_FACTOR, 50 * _MAGIC_FACTOR
+BLOCK_SIZE = 20 // _MAGIC_FACTOR
 
 # Es gibt sonst Probleme aufgrund anderer Tastaturstandards
 _PLUS = 93
@@ -27,18 +30,26 @@ BACKGROUND_COLOR = (255, 255, 255)  # Weiß
 FONT_SIZE = 20
 
 
-class PgGol:
+def require_state(state, bool_=True):
+    """
+    Decorator 2. Ordnung, der die dekorierte Methode dann ausführt,
+    wenn ein spezifiertes Attribut des Objektes, welche die Methode
+    momentan bindet, den selben Wahrheitswert wie `bool_` hat.
 
-    key_to_action = {
-        pg.K_p: lambda self: self.start_game(),
-        pg.K_q: lambda self: setattr(self, 'playing', False),
-        pg.K_h: lambda self: self.toggle_help(),
-        pg.K_r: lambda self: self.reset(),
-        pg.K_s: lambda self: self.soft_reset(),
-        pg.K_ESCAPE: lambda self: self.toggle_pause(),
-        _MINUS: lambda self: self.change_timer(operator.lt, TIMER_MAX, operator.add),
-        _PLUS: lambda self: self.change_timer(operator.gt, TIMER_MIN, operator.sub)
-    }
+    :param state: {str} Das zu überprüfende Attribut
+    :param bool_: {bool} Bool'scher Wert, gegen den `state` gecheckt wird
+    :return: {function} Decorator
+    """
+    def dec(method):
+        @wraps(method)
+        def wrapper(self, *args, **kwargs):
+            if getattr(self, state) == bool_:
+                method(self, *args, **kwargs)
+        return wrapper
+    return dec
+
+
+class PgGol:
 
     def __init__(self, lines, cols):
         pg.display.set_caption('Game of Life')
@@ -47,24 +58,24 @@ class PgGol:
         self.world = pg.display.set_mode(Vector((cols, lines)) * self.block_size)
         self.screen = pg.display.get_surface()
         self.font = pg.font.Font('freesansbold.ttf', FONT_SIZE)
+        self.timer = TIMER_INIT
         self._size = (lines, cols)
         self.playing = False
         self.reset()
 
     @classmethod
-    def from_file(cls, file, config_name, lines, cols):
+    def from_file(cls, file, config_name, lines, cols, middle=False):
         obj = cls(lines, cols)
-        obj.cells = gol.from_file(file, config_name)
+        obj.cells = gol.from_file(file, config_name, middle, lines, cols)
         return obj
 
+    @require_state('playing', False)
     def reset(self):
         """
         Setzt ein vorübergegangenes Spiel auf den Ursprungszustand zurück.
 
         :return: None
         """
-        if self.playing:
-            return
         self.cells = set()
         self.texts = []
         self.time_passed = 0
@@ -72,8 +83,8 @@ class PgGol:
         self.playing = True
         self.paused = False
         self.in_help = False
-        self.timer = TIMER_INIT
 
+    @require_state('playing', False)
     def soft_reset(self):
         """
         Wie `self.reset`, benutzt aber vorherige Startkonfiguration als Ausgangspunkt.
@@ -85,15 +96,15 @@ class PgGol:
         self.reset()
         self.cells = self.old_config
 
+    @require_state('initialising')
     def start_game(self):
         """
         Beginnt Simulation und speichert Startkonfiguration.
 
         :return: None
         """
-        if self.initialising:
-            self.initialising = False
-            self.old_config = self.cells.copy()
+        self.initialising = False
+        self.old_config = self.cells.copy()
 
     def run(self):
         """
@@ -114,6 +125,7 @@ class PgGol:
             self.update(dt)
             self.draw()
 
+    @require_state('playing')
     def update(self, dt):
         """
         Kümmert sich um Zellen und aktuellen Status.
@@ -121,8 +133,6 @@ class PgGol:
         :param dt: {int} Millisekunden seit letztem Tick
         :return: None
         """
-        if not self.playing:
-            return
         if self.in_help:
             self.alert_help()
         if self.paused:
@@ -147,25 +157,30 @@ class PgGol:
 
     def draw(self):
         """
-        Zeichnet Zellen und Text, der zu sehen ist.
+        Zeichnet je nach Spielstatus verschiedene Sachen.
 
         :return: None
         """
-        self.screen.fill(BACKGROUND_COLOR)
-        for cell in self.cells:
+        if not self.playing:
+            # Leere übrige Texte, die sich eventuell angesammelt haben
+            self.texts = []
+            self.draw_game_over()
+        else:
+            self.screen.fill(BACKGROUND_COLOR)
+            for cell in self.cells:
                 rect = pg.Rect(Vector(cell) * BLOCK_SIZE, (BLOCK_SIZE, BLOCK_SIZE))
                 pg.draw.rect(self.screen, CELL_COLOR, rect)
 
+        self.draw_all_texts()
+        pg.display.update()
+
+    def draw_all_texts(self):
         while self.texts:
             text = self.texts.pop()
             if isinstance(text, (tuple, list)):
                 self.draw_text(*text)
             elif isinstance(text, dict):
                 self.draw_text(**text)
-
-        if not self.playing:
-            self.draw_game_over()
-        pg.display.update()
 
     def draw_text(self, text, pos, color=TEXT_COLOR):
         """
@@ -175,6 +190,7 @@ class PgGol:
         """
         self.screen.blit(self.font.render(text, 1, color), pos)
 
+    @require_state('initialising')
     def handle_mouse_input(self):
         """
         In der Initialisierungssphase werden bei einem Linksklick
@@ -182,8 +198,6 @@ class PgGol:
 
         :return: None
         """
-        if not self.initialising:
-            return
         pos = pg.mouse.get_pos()
         lclick = pg.mouse.get_pressed()[0]
         if lclick:
@@ -200,8 +214,19 @@ class PgGol:
         :param key: {int} Gedrückte Taste
         :return: None
         """
-        act = self.key_to_action.get(key, lambda _: 0)
-        act(self)
+        key_to_action = {
+            pg.K_p: self.start_game,
+            pg.K_q: partial(setattr, self, 'playing', False),
+            pg.K_h: self.toggle_help,
+            pg.K_r: self.reset,
+            pg.K_s: self.soft_reset,
+            pg.K_o: self.save_to_file,
+            pg.K_ESCAPE: self.toggle_pause,
+            _MINUS: partial(self.change_timer, oper.lt, TIMER_MAX, oper.add),
+            _PLUS: partial(self.change_timer, oper.gt, TIMER_MIN, oper.sub)
+        }
+        action = key_to_action.get(key, lambda: 0)
+        action()
 
     def change_timer(self, cmp, cmp_with, op):
         """
@@ -231,12 +256,44 @@ class PgGol:
         """
         self.paused = not self.paused
 
+    @require_state('playing', False)
+    def save_to_file(self, file='your_templates.json'):
+        template = self.create_template()
+
+        with open(file, 'rt') as f:
+            configs = json.load(f)
+        name = f'config{len(configs)}'
+        configs[name] = {'template': template}
+        with open(file, 'wt') as f:
+            json.dump(configs, f)
+
+        self.alert_save_success()
+
+    def create_template(self):
+        """
+        Erstellt ein Template aus aktueller Ausgangskonfiguration.
+
+        :return: {list<str>} Das Template
+        """
+        lines, cols = self._size
+        template = []
+
+        for y in range(lines):
+            line = []
+            for x in range(cols):
+                symbol = ' '
+                if (x, y) in self.old_config:
+                    symbol = '#'
+                line.append(symbol)
+            template.append(''.join(line))
+        return template
+
     def alert_paused(self):
         """
         Fügt die Texte hinzu, die während dem pausierten Zustand
         angezeigt werden sollen.
 
-        :return:None
+        :return: None
         """
         self.texts.append(('Pausiert', (20, 5)))
         self.texts.append((f'Derzeitige ms pro Zyklus: {self.timer}', (20, 30)))
@@ -253,6 +310,9 @@ class PgGol:
         self.texts.append(('p: Spiel Starten', (20, 170)))
         self.texts.append(('q: Spiel beenden', (20, 200)))
 
+    def alert_save_success(self):
+        self.texts.append(('Speichern erfolgreich', (20, 130)))
+
     def draw_game_over(self):
         """
         Zeichnet, was nach beenden der Simulation zu sehen ist.
@@ -260,11 +320,14 @@ class PgGol:
         :return: None
         """
         self.screen.fill(GAME_OVER_COLOR)
-        self.draw_text('Das Spiel ist vorbei!', (20, 10))
-        self.draw_text('Drücke r, um nochmal zu spielen', (20, 40))
-        self.draw_text('Drücke s, um die gleiche Konfiguration wie eben zu benutzen', (20, 70))
+        self.texts.append(('Das Spiel ist vorbei!', (20, 10)))
+        self.texts.append(('Drücke r, um nochmal zu spielen', (20, 40)))
+        self.texts.append(('Drücke s, um die gleiche Konfiguration wie eben zu benutzen', (20, 70)))
+        self.texts.append(('Drücke o, um deine Startkonfiguration in'
+                           ' "your_templates.json" abzuspeichern', (20, 100)))
 
 
 if __name__ == '__main__':
     pg.init()
-    PgGol.from_file('examples.json', '54turns', LINES, COLS).run()
+    #PgGol(LINES, COLS).run()
+    PgGol.from_file('examples.json', 'acorn', LINES, COLS, middle=True).run()
