@@ -83,7 +83,7 @@ def parse_string(template, row_offset=0, col_offset=0, alive='#'):
     return cells
 
 
-def from_file(file, config_name, middle, lines, cols):
+def from_file(file, config_name, lines, cols, middle):
     with open(file, 'rt') as f:
         configs = json.load(f)
     config = configs[config_name]
