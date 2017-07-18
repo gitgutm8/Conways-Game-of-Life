@@ -1,6 +1,8 @@
 import sys
 import operator
+
 import pygame as pg
+
 import gol
 from vectors import Vector
 
@@ -10,7 +12,7 @@ TIMER_INIT = 200  # Zeit zum nächsten Update der Zellen in ms
 TIMER_CHANGE = 10
 TIMER_MIN, TIMER_MAX = 100, 300
 
-ROWS, COLS = 30, 50
+LINES, COLS = 30, 50
 BLOCK_SIZE = 20
 
 # Es gibt sonst Probleme aufgrund anderer Tastaturstandards
@@ -48,6 +50,12 @@ class PgGol:
         self._size = (lines, cols)
         self.playing = False
         self.reset()
+
+    @classmethod
+    def from_file(cls, file, config_name, lines, cols):
+        obj = cls(lines, cols)
+        obj.cells = gol.from_file(file, config_name)
+        return obj
 
     def reset(self):
         """
@@ -259,4 +267,4 @@ class PgGol:
 
 if __name__ == '__main__':
     pg.init()
-    PgGol(ROWS, COLS).run()
+    PgGol.from_file('examples.json', '54turns', LINES, COLS).run()
